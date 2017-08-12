@@ -2,6 +2,8 @@ import React from 'react';
 import { Platform, StyleSheet, Text, View, Image, Dimensions, TouchableHighlight, Modal, TextInput, Button } from 'react-native';
 import { MapView, Constants, Location, Permissions } from 'expo';
 
+import cycleImg from './assets/images/cycle.png';
+
 const { width, height } = Dimensions.get('window');
 
 const ASPECT_RATIO = width / height;
@@ -10,8 +12,12 @@ const LONGITUDE = -122.4324;
 const LATITUDE_DELTA = 0.0922;
 const LONGITUDE_DELTA = LATITUDE_DELTA * ASPECT_RATIO;
 
+let id = 0;
+const backend = 'http://192.168.1.2:8000';
+
 export default class App extends React.Component {
   state = {
+    // location only
     location: {
       latitude: LATITUDE,
       longitude: LONGITUDE,
@@ -19,8 +25,11 @@ export default class App extends React.Component {
       longitudeDelta: LONGITUDE_DELTA,
     },
     errorMessage: null,
-    modalVisible: false,
+    // create mark only
+    addMarkModalVisible: false,
     newMarkCoordinate: null,
+    markerText: null,
+    markers: [],
   };
 
 
@@ -32,6 +41,23 @@ export default class App extends React.Component {
     } else {
       this._getLocationAsync();
     }
+  }
+
+  getMarks() {
+    return fetch('http://192.168.1.2:8000/api/marks/')
+       .then((response) => response.json())
+       .then((responseJson) => {
+         for (let i = 0; i < responseJson.message.length; i++) {
+           let coordinateJson = responseJson.message[i].coordinate;
+           responseJson.message[i].coordinate = JSON.parse(coordinateJson);
+         }
+         let marks = responseJson.message;
+         this.setState({ markers: marks });
+         return marks;
+       })
+       .catch((error) => {
+         console.error(error);
+       });
   }
 
   _getLocationAsync = async () => {
@@ -50,11 +76,13 @@ export default class App extends React.Component {
       longitudeDelta: LONGITUDE_DELTA,
     };
     this.setState({ location });
+    this.getMarks();
   };
 
   _onMapPress = (e) => {
-    this._setModalVisible(true);
+    this.showAdddMarkModal(true);
     newMarkCoordinate = e.nativeEvent.coordinate;
+    this.setState({ newMarkCoordinate });
   }
 
   _onPressPlus = () => {
@@ -85,13 +113,36 @@ export default class App extends React.Component {
     this.setState({ location });
   }
 
-  _setModalVisible(visible) {
-    this.setState({modalVisible: visible});
+  showAdddMarkModal(visible) {
+    this.setState({addMarkModalVisible: visible});
   }
 
+  onMarkPress = (e) => {
+    console.log(e.nativeEvent);
+    console.log('cliiick');
+  }
 
-  _saveMark = () => {
-
+  saveMark = () => {
+    let coord = JSON.stringify(this.state.newMarkCoordinate);
+    fetch('http://192.168.1.2:8000/api/mark/', {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        coordinate: coord,
+        message: this.state.markerText,
+      })
+    })
+      .then((response) => response.json())
+      .then((responseJson) => {
+        this.getMarks();
+      })
+      .catch((error) => {
+         console.error(error);
+      });
+    this.showAdddMarkModal(false);
   }
 
   render() {
@@ -101,7 +152,19 @@ export default class App extends React.Component {
           style={{ flex: 1 }}
           onPress={this._onMapPress}
           region={this.state.location}
-        />
+        >
+          {
+            this.state.markers.map(marker => (
+             <MapView.Marker
+               title={marker.key}
+               image={cycleImg}
+               key={marker.key}
+               coordinate={marker.coordinate}
+               onPress={this.onMarkPress}
+             />
+           ))
+         }
+        </MapView>
         <TouchableHighlight
           style={[styles.mapHighlightControl, styles.mapHighlightPlus]}
           onPress={this._onPressPlus}
@@ -133,11 +196,11 @@ export default class App extends React.Component {
         <Modal
           animationType={"slide"}
           transparent={false}
-          visible={this.state.modalVisible}
+          visible={this.state.addMarkModalVisible}
           onRequestClose={() => {
-            this._setModalVisible(false);
+            this.showAdddMarkModal(false);
           }}
-          >
+        >
          <View style={{marginTop: 22}}>
           <View>
             <Text>Укажите информацию о встрече</Text>
@@ -145,10 +208,12 @@ export default class App extends React.Component {
               <TextInput
                 style={styles.modalMultiInput}
                 multiline={true}
+                onChangeText={(markerText) => this.setState({markerText})}
+                value={this.state.markerText}
               />
             </View>
             <View style={styles.saveMarkButtonWrapper}>
-              <Button onPress={this._saveMark} title="Создать метку" color="#841584" />
+              <Button onPress={this.saveMark} title="Создать метку" color="#841584" />
             </View>
           </View>
          </View>
